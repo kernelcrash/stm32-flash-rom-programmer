@@ -75,7 +75,7 @@ Commands
 Identify FLASH chip                                                             
 Manufacturer: 20 , Device: e2  
 
-Manufacturer 20 and device e2 is rpbably not a real AM29F040B. It should
+Manufacturer 20 and device e2 is probably not a real AM29F040B. It should
 show 01 ... A4 if its a real one.
 
  MD5SUM
@@ -90,8 +90,7 @@ show 01 ... A4 if its a real one.
  HELP
  ====
 
- eg.  ?
-
+```
 Flash ROM tool
 ==============
   r nnnnn mmmmm - show mmmmm bytes at address nnnnn
@@ -102,5 +101,5 @@ Flash ROM tool
   m nnnnn mmmmm - md5sum rom content starting at nnnnn for mmmmmm bytes long
   v - version info
   ? - show this help screen
-
+```
  
