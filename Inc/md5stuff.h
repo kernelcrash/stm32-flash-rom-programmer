@@ -24,7 +24,7 @@
  */
 
 #include <string.h>
-#include "stm32f4xx.h"
+#include "stm32h7xx.h"
 
 typedef uint32_t MD5_u32plus;
 

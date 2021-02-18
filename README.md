@@ -1,17 +1,17 @@
-Simple Flash ROM programming rool using an stm32f407 board
+Simple Flash ROM programming rool using an stm32h743 board
 
  by kernel@kernelcrash.com
 
 - Can erase and program parallel flash ROMs like the AM29F040B
-- Based on my old hacked version of meeprommer
-- The stm32f407 board appears as a USB serial device to a PC.
+- Based on my old hacked version of meeprommer and the stm32f4 version 
+- The stm32h743 board appears as a USB serial device to a PC.
 - You use a terminal program on a PC to talk to it.
 - Wire a AM29F040B parallel flash ROM directly to the stm32f407 board.
 - Simple command line based tool to query the flash ROM , and to
   program it using an xmodem transfer (128 byte mode)
 - The Command line parser is very simple so when it says you need to type
   a 5 digit hex number, then type a 5 digit hex number. Press reset on the 
-  stm32f407 board if you screw up.
+  stm32h743 board if you screw up.
 - It probably only works on a AM29F040B or similar
 
 Wiring

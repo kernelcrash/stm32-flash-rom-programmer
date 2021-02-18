@@ -9,10 +9,10 @@
   * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
   * All rights reserved.</center></h2>
   *
-  * This software component is licensed by ST under BSD 3-Clause license,
-  * the "License"; You may not use this file except in compliance with the
-  * License. You may obtain a copy of the License at:
-  *                        opensource.org/licenses/BSD-3-Clause
+  * This software component is licensed by ST under Ultimate Liberty license
+  * SLA0044, the "License"; You may not use this file except in compliance with
+  * the License. You may obtain a copy of the License at:
+  *                             www.st.com/SLA0044
   *
   ******************************************************************************
   */
@@ -440,21 +440,21 @@ void read_md5(uint32_t startAddress, uint32_t dataLength) {
 
 }
 
-uint8_t parseCommand() {
+uint8_t parseCommand(char *commandLine) {
   //set ',' to '\0' terminator (command string has a fixed strucure)
   //first string is the command character
-  cmdbuf[1]  = 0;
+  commandLine[1]  = 0;
   //second string is startaddress (5 bytes)
-  cmdbuf[7]  = 0;
+  commandLine[7]  = 0;
   //third string is a data length (orig file said endaddress (5 bytes))
-  cmdbuf[13] = 0;
+  commandLine[13] = 0;
   //fourth string is length (2 bytes)
-  cmdbuf[16] = 0;
-  startAddress = hexFiveWord((cmdbuf + 2));
-  dataLength = hexFiveWord((cmdbuf + 8));
-  lineLength = hexByte(cmdbuf + 14);
+  commandLine[16] = 0;
+  startAddress = hexFiveWord((commandLine + 2));
+  dataLength = hexFiveWord((commandLine + 8));
+  lineLength = hexByte(commandLine + 14);
   uint8_t retval = 0;
-  switch (cmdbuf[0]) {
+  switch (commandLine[0]) {
     case 'a':
       retval = SET_ADDRESS;
       break;
@@ -542,6 +542,12 @@ int main(void)
   /* USER CODE END 1 */
   
 
+  /* Enable I-Cache---------------------------------------------------------*/
+  SCB_EnableICache();
+
+  /* Enable D-Cache---------------------------------------------------------*/
+  SCB_EnableDCache();
+
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -577,15 +583,22 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	//LL_GPIO_TogglePin(GPIOA, LL_GPIO_PIN_1);
-	//send_buffer[0] = x++;
-	//CDC_Transmit_FS(send_buffer,3);
+	//buffer[0] = x++;
+	//CDC_Transmit_FS(buffer,3);
 	//LL_mDelay(1000);
+	//readCommand();
+	//x=x+10;
+	//buffer[0] = x++;
+	//CDC_Transmit_FS(buffer,3);
 
+  //}
+  //while (1) {
 	if (loop_cmd == NOCOMMAND) {
 		printSerialUSB("\r% "); // show the prompt
 		readCommand();
 		printSerialUSB("\r\n"); // only required in ECHO mode
-		uint8_t cmd = parseCommand();
+		uint8_t cmd = parseCommand(cmdbuf);
+		//uint8_t cmd = 0;
 
 		switch (cmd) {
       			case FLASH_IDENTIFY:
@@ -701,12 +714,13 @@ int main(void)
   */
 void SystemClock_Config(void)
 {
-  LL_FLASH_SetLatency(LL_FLASH_LATENCY_5);
+  LL_FLASH_SetLatency(LL_FLASH_LATENCY_4);
 
-  if(LL_FLASH_GetLatency() != LL_FLASH_LATENCY_5)
+  if(LL_FLASH_GetLatency() != LL_FLASH_LATENCY_4)
   {
-  Error_Handler();  
+    Error_Handler();  
   }
+  LL_PWR_ConfigSupply(LL_PWR_LDO_SUPPLY);
   LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE1);
   LL_RCC_HSE_Enable();
 
@@ -715,32 +729,58 @@ void SystemClock_Config(void)
   {
     
   }
-  LL_RCC_PLL_ConfigDomain_SYS(LL_RCC_PLLSOURCE_HSE, LL_RCC_PLLM_DIV_8, 336, LL_RCC_PLLP_DIV_2);
-  LL_RCC_PLL_ConfigDomain_48M(LL_RCC_PLLSOURCE_HSE, LL_RCC_PLLM_DIV_8, 336, LL_RCC_PLLQ_DIV_7);
-  LL_RCC_PLL_Enable();
+  LL_RCC_PLL_SetSource(LL_RCC_PLLSOURCE_HSE);
+  LL_RCC_PLL1P_Enable();
+  LL_RCC_PLL1_SetVCOInputRange(LL_RCC_PLLINPUTRANGE_4_8);
+  LL_RCC_PLL1_SetVCOOutputRange(LL_RCC_PLLVCORANGE_WIDE);
+  LL_RCC_PLL1_SetM(5);
+  LL_RCC_PLL1_SetN(160);
+  LL_RCC_PLL1_SetP(2);
+  LL_RCC_PLL1_SetQ(2);
+  LL_RCC_PLL1_SetR(2);
+  LL_RCC_PLL1_Enable();
 
    /* Wait till PLL is ready */
-  while(LL_RCC_PLL_IsReady() != 1)
+  while(LL_RCC_PLL1_IsReady() != 1)
   {
-    
-  }
-  LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
-  LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_4);
-  LL_RCC_SetAPB2Prescaler(LL_RCC_APB2_DIV_2);
-  LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_PLL);
+  };
 
-   /* Wait till System clock is ready */
-  while(LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_PLL)
+  LL_RCC_PLL3Q_Enable();
+  LL_RCC_PLL3_SetVCOInputRange(LL_RCC_PLLINPUTRANGE_1_2);
+  LL_RCC_PLL3_SetVCOOutputRange(LL_RCC_PLLVCORANGE_WIDE);
+  LL_RCC_PLL3_SetM(25);
+  LL_RCC_PLL3_SetN(192);
+  LL_RCC_PLL3_SetP(2);
+  LL_RCC_PLL3_SetQ(4);
+  LL_RCC_PLL3_SetR(2);
+  LL_RCC_PLL3_Enable();
+
+   /* Wait till PLL is ready */
+  while(LL_RCC_PLL3_IsReady() != 1)
   {
+  };
+
+   /* Intermediate AHB prescaler 2 when target frequency clock is higher than 80 MHz */
+   LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_2);
   
-  }
-  LL_SetSystemCoreClock(168000000);
+  LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_PLL1);
+  LL_RCC_SetSysPrescaler(LL_RCC_SYSCLK_DIV_1);
+  LL_RCC_SetAHBPrescaler(LL_RCC_AHB_DIV_2);
+  LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_2);
+  LL_RCC_SetAPB2Prescaler(LL_RCC_APB2_DIV_2);
+  LL_RCC_SetAPB3Prescaler(LL_RCC_APB3_DIV_2);
+  LL_RCC_SetAPB4Prescaler(LL_RCC_APB4_DIV_2);
+  LL_SetSystemCoreClock(200000000);
 
    /* Update the time base */
   if (HAL_InitTick (TICK_INT_PRIORITY) != HAL_OK)
   {
     Error_Handler();  
   };
+
+  LL_RCC_SetUSBClockSource(LL_RCC_USB_CLKSOURCE_PLL3Q);
+
+
 }
 
 /**
@@ -753,11 +793,11 @@ static void MX_GPIO_Init(void)
   LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOE);
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOH);
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOC);
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOA);
-  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOD);
+  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOE);
+  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOH);
+  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOC);
+  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOA);
+  LL_AHB4_GRP1_EnableClock(LL_AHB4_GRP1_PERIPH_GPIOD);
 
   /**/
   LL_GPIO_ResetOutputPin(GPIOE, LL_GPIO_PIN_2|LL_GPIO_PIN_3|LL_GPIO_PIN_4|LL_GPIO_PIN_5 
@@ -766,10 +806,10 @@ static void MX_GPIO_Init(void)
                           |LL_GPIO_PIN_14|LL_GPIO_PIN_15|LL_GPIO_PIN_0|LL_GPIO_PIN_1);
 
   /**/
-  LL_GPIO_ResetOutputPin(GPIOA, LL_GPIO_PIN_1|LL_GPIO_PIN_2|LL_GPIO_PIN_3|LL_GPIO_PIN_4);
+  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0|LL_GPIO_PIN_1|LL_GPIO_PIN_2);
 
   /**/
-  LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0|LL_GPIO_PIN_1|LL_GPIO_PIN_2);
+  LL_GPIO_ResetOutputPin(GPIOA, LL_GPIO_PIN_1|LL_GPIO_PIN_2|LL_GPIO_PIN_3|LL_GPIO_PIN_4);
 
   /**/
   GPIO_InitStruct.Pin = LL_GPIO_PIN_2|LL_GPIO_PIN_3|LL_GPIO_PIN_4|LL_GPIO_PIN_5 
@@ -802,6 +842,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pin = LL_GPIO_PIN_8|LL_GPIO_PIN_9|LL_GPIO_PIN_10|LL_GPIO_PIN_11 
                           |LL_GPIO_PIN_12|LL_GPIO_PIN_13|LL_GPIO_PIN_14|LL_GPIO_PIN_15;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   LL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 

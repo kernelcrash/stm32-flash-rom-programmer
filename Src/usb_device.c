@@ -39,7 +39,6 @@
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
 
-
 /* USER CODE END PFP */
 
 /* USB Device Core handle declaration. */
@@ -139,6 +138,7 @@ void MX_USB_DEVICE_Init(void)
   }
 
   /* USER CODE BEGIN USB_DEVICE_Init_PostTreatment */
+  HAL_PWREx_EnableUSBVoltageDetector();
   
   /* USER CODE END USB_DEVICE_Init_PostTreatment */
 }
