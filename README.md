@@ -17,6 +17,7 @@ Simple Flash ROM programming rool using an stm32f407 board
 Wiring
 ======
 
+```
   PD8 - PD15    ->   D0 - D7                                                      
   PE0 - PE15    ->   A0 - A15                                                     
   PA2 - PA4    ->   A16 - A18                                                     
@@ -24,8 +25,8 @@ Wiring
   PC1    ->   _OE                                                                 
   PC2    ->   _WE      
   GND    ->   GND
-  +5V    - >  VCC
-
+  +5V    ->  VCC
+```
 Commands
 
  Read from memory
