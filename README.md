@@ -62,7 +62,7 @@ Commands
  Use an xmodem transfer to write to the chip at the address specified.
  As soon as you hit ENTER after the 'w' command you'll see a series of 
  'C' chars. You now need to switch your terminal program into 'Send xmodem'
- mode. In minicom I hit 'ctrl-o s', then choose XModem from the menu, then 
+ mode. In minicom I hit 'ctrl-a s', then choose XModem from the menu, then 
  it pops up a file requester. I find my file with the cursor keys, press
  space to select it and hit ENTER. The xmodem transfer should start and 
  the chip will be programmed as it's transferred. It's not that quick,
