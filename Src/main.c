@@ -63,6 +63,8 @@
 
 #define MD5SUM 40
 
+#define BLANK_CHECK 45
+
 #define HELP 50
 #define GPIO_HELP 51
 
@@ -96,6 +98,8 @@ int bytes;  // Make sure this is not defined in 'loop'!
 uint8_t crchigh,crclow;
 uint32_t total;
 uint32_t flashaddress;
+uint32_t address_toggle;
+uint8_t page_buffer[128];
 
 //a buffer for bytes to burn
 #define BUFFERSIZE 133
@@ -117,7 +121,7 @@ static void MX_GPIO_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-void delay_us(const uint16_t us)
+void delay_us(const uint32_t us)
 {
    uint32_t i = us * 60;
    while (i-- > 0) {
@@ -155,14 +159,15 @@ void printPrompt() {
 
 
 void printHelp() {
-  printLineSerialUSB("\r\nFlash ROM tool");
-  printLineSerialUSB("==============");
+  printLineSerialUSB("\r\nFlash ROM tool (MX29F1615 version)");
+  printLineSerialUSB("=====================================");
   printLineSerialUSB("  r nnnnn mmmmm - show mmmmm bytes at address nnnnn");
   printLineSerialUSB("  w nnnnn - write to flash using xmodem transfer");
   printLineSerialUSB("  e - erase flash rom");
   printLineSerialUSB("  g - show how to connect the GPIO pins to the flash ROM");
   printLineSerialUSB("  i - identify flash rom");
-  printLineSerialUSB("  m nnnnn mmmmm - md5sum rom content starting at nnnnn for mmmmmm bytes long");
+  printLineSerialUSB("  m nnnnn mmmmm - md5sum rom content starting at nnnnn for mmmmm bytes long");
+  printLineSerialUSB("  b nnnnn mmmmm - Blank check for FFFFs starting at nnnnn for mmmmm bytes long");
   printLineSerialUSB("  v - version info");
   printLineSerialUSB("  ? - show this help screen");
   printSerialUSB("\r\n");
@@ -171,53 +176,54 @@ void printHelp() {
 void printGPIOHelp() {
   printSerialUSB("\r\nGPIO Map\r\n");
   printSerialUSB("==============\r\n");
-  printSerialUSB("PD8 - PD15    ->   D0 - D7\r\n");
+  printSerialUSB("PD0 - PD15    ->   Q0 - Q15\r\n");
   printSerialUSB("PE0 - PE15    ->   A0 - A15\r\n");
-  printSerialUSB("PA2 - PA4    ->   A16 - A18\r\n");
+  printSerialUSB("PA2 - PA5    ->   A16 - A19\r\n");
   printSerialUSB("PC0    ->   _CE\r\n");
   printSerialUSB("PC1    ->   _OE\r\n");
-  printSerialUSB("PC2    ->   _WE\r\n");
   printSerialUSB("\r\n");
 }
 
-void writeToFlashROM(uint32_t addr, uint8_t data) {
+// addr is word address, not a byte address
+void writeToFlashROM(uint32_t addr, uint16_t data) {
 	uint32_t upper_addr;
 	uint32_t t;
 
-	upper_addr = (addr & 0x00070000) >>16;
+	upper_addr = (addr & 0x000f0000) >>16;
 
 	GPIOE->ODR = (addr & 0x0000ffff);
-	// add the upper address bits to PA2, PA3, PA4
+	// add the upper address bits to PA2, PA3, PA4, PA5
 	t = GPIOA->IDR;
-	GPIOA->ODR = (t & 0xffffffe3) | (upper_addr << 2);
-	GPIOD->MODER = 0x55550000;	// port D to outputs
+	GPIOA->ODR = (t & 0xffffffc3) | (upper_addr << 2);
+	GPIOD->MODER = 0x55555555;	// port D to outputs
 
-	GPIOD->ODR = (data << 8);
+	GPIOD->ODR = data ;
 
-	GPIOC->ODR &= 0xfffffffa;	// PC0 (_CE) and PC2 (_wE) low
+	GPIOC->ODR &= 0xfffffffe;	// PC0 (_CE) low
 	delay_us(2);
 
-	GPIOC->ODR |= 0x00000007;	// PC0 (_CE) and PC2 (_WE) high
+	GPIOC->ODR |= 0x00000007;	// PC0 (_CE) high
 
 }
 
-uint8_t readFromFlashROM(uint32_t addr) {
+// addr is word address, not a byte address
+uint16_t readFromFlashROM(uint32_t addr) {
 	uint32_t upper_addr;
 	uint32_t t;
-	uint8_t d;
+	uint16_t d;
 
-	upper_addr = (addr & 0x00070000) >>16;
+	upper_addr = (addr & 0x000f0000) >>16;
 
 	GPIOE->ODR = (addr & 0x0000ffff);
 	// add the upper address bits to PA2, PA3, PA4
 	t = GPIOA->IDR;
-	GPIOA->ODR = (t & 0xffffffe3) | (upper_addr << 2);
+	GPIOA->ODR = (t & 0xffffffc3) | (upper_addr << 2);
 	GPIOD->MODER = 0x0;	// port D to inputs
 
 	GPIOC->ODR &= 0xfffffffc;	// PC0 (_CE) and PC1 (_OE) low
 	delay_us(2);
 
-	d = (GPIOD->IDR >> 8) & 0x00ff;
+	d = GPIOD->IDR ;
 
 	GPIOC->ODR |= 0x00000007;	// PC0 (_CE) and PC1 (_OE) high
 
@@ -226,33 +232,73 @@ uint8_t readFromFlashROM(uint32_t addr) {
 
 }
 
-uint8_t write_next_byte( uint8_t data) {
+uint8_t write_next_word( uint16_t data) {
    int i;
-   uint8_t tmp;
+   uint16_t tmp;
 
-   writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0xaa);
-   writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x55);
-   writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0xa0);
+   writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x00aa);
+   writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x0055);
+   writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x00a0);
 
-   // write the byte
+   // write the word
    writeToFlashROM(flashaddress,data);
 
    // wait for DQ7 to be set correctly
    for (i=0;i<100;i++) {
-      tmp = readFromFlashROM(flashaddress);
-      if (tmp == data)
+      tmp = readFromFlashROM(flashaddress>>1);
+      if (tmp & 0x0080)
          break;
    }
 
-   flashaddress++;
+   flashaddress+=2;
 
    return 0; // TODO . return an error if it failed
 }
 
+uint8_t write_next_page( uint8_t *buf) {
+   int i;
+   uint16_t tmp;
+
+   writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x00aa);
+   writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x0055);
+   writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x00a0);
+
+   // write 64 words
+   for (i=0;i<64;i++) {
+	// TODO this should probably be the other way around
+	// Put the lower address byte in D15 to D8 and the higher address byte in D7 to D0. This means we should not have to byte swap
+	tmp = ( (uint16_t) (buf[i*2]<<8) + (uint16_t) (buf[i*2+1]) );
+   	writeToFlashROM(flashaddress>>1,tmp);
+	flashaddress+=2;
+   }
+   // pray and hope since we cannot set _BYTE_VPP back to +5V
+   delay_us(4000);
+
+
+   return 0; // TODO . return an error if it failed
+}
+
+// Since we only write 16 bytes at a time, write_next_byte will save a byte then write a word  depending on whether flashaddress is even or odd. 
+// This also means you can't really  have an uneven number of bytes to write.
+//
+// We should be writing 64 x 16bit words at a time. That is conveniently the 128 bytes of one block of the xmodem transfer
+// So basically accumulate 64 words then write those all at once
+uint8_t write_next_byte( uint8_t data) {
+	if ((address_toggle & 0x0007f) != 0x0007f) {
+		page_buffer[address_toggle & 0x0007f] = data;
+		address_toggle++;
+		return 0;
+	} else {
+		page_buffer[address_toggle & 0x0007f] = data;
+		address_toggle++;
+		return write_next_page(page_buffer);
+	}
+}
+
 void specialFlashROMReset() {
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0xaa);
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x55);
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0xf0);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x00aa);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x0055);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x00f0);
 }
 
 
@@ -268,13 +314,13 @@ void identifyChip() {
 	specialFlashROMReset();
 
 
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0xaa);
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x55);
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x90);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x00aa);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x0055);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x0090);
 
-	manufacturer_code = readFromFlashROM(0x0000);
+	manufacturer_code = (uint8_t) readFromFlashROM(0x0000);
 	delay_us(2);
-	device_code = readFromFlashROM(0x0001);
+	device_code = (uint8_t) readFromFlashROM(0x0001);
 
 	sprintf(buf,"Manufacturer: %02x , Device: %02x\r\n",manufacturer_code,device_code);
 	printSerialUSB(buf);
@@ -290,21 +336,28 @@ void identifyChip() {
 
 void eraseChip() {
 	uint32_t i;
-	uint8_t d;
+	uint16_t d;
 
 	//uint8_t buf[80];
 
+	printSerialUSB("About to erase MX29F1615. Make sure you have 10V connected to _BYTE/VPP. I will give you 5 seconds\r\n");
 
-	printSerialUSB("erasing chip\r\n");
+	for (i=0;i<5;i++) {
+		printSerialUSB(".");
+		LL_mDelay(1000);
+	}
+
+
+	printSerialUSB("\r\nerasing chip\r\n");
 	// reset first
 	specialFlashROMReset();
 
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0xaa);
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x55);
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x80);
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0xaa);
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x55);
-	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x10);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x00aa);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x0055);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x0080);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x00aa);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_2,0x0055);
+	writeToFlashROM(SPECIAL_FLASH_ROM_ADDRESS_1,0x0010);
 
 	for (i=0;i<250;i++) {
 		d = readFromFlashROM(0x0000);
@@ -318,13 +371,20 @@ void eraseChip() {
 
 	// reset again
 	specialFlashROMReset();
+	printSerialUSB("\r\nNow do the following\r\n");
+	printSerialUSB("- Wait a few minutes\r\n");
+        printSerialUSB("- Disconnect the +10V from _BYTE/VPP\r\n");
+	printSerialUSB("- Reconnect _BYTE/VPP to +5V\r\n");
+	printSerialUSB("- Power cycle the MX29F1615 in order to read it\r\n");
+	printSerialUSB("- Once you have power cycled, use the b command to check if its actually blank\r\n");
 
 }
 
+// from and to are byte addresses, not word addresses
 void read_block(uint32_t from, uint32_t to, int linelength) {
 	uint32_t addr;
 	uint32_t i;
-	uint8_t d;
+	uint16_t d;
 
 
 	char buf[80];
@@ -334,9 +394,10 @@ void read_block(uint32_t from, uint32_t to, int linelength) {
 	while (addr < to ) {
 		sprintf((char *)buf,"%05x  ",(unsigned int) (addr));
 		printSerialUSB(buf);
-		for (i=0; i<16;i++) {
-			d = readFromFlashROM(addr+i);
-			sprintf(buf,"%02x ",d);
+		// show 8 words (ie. 16 bytes)
+		for (i=0; i<8;i++) {
+			d = readFromFlashROM((addr>>1)+i);
+			sprintf(buf,"%04x ",d);
 			printSerialUSB(buf);
 		}
 		printSerialUSB("\r\n");
@@ -360,6 +421,21 @@ uint8_t hexDigit(uint8_t c) {
   }
 }
 
+// 5 digit hex number
+uint32_t hexConvert(char* data) {
+  int i = 0;
+  uint32_t a,b;
+
+  if (data[0]==0) {
+     return 0;
+  }
+  b=0;
+  while ( ((data[i]>='0') && (data[i]<='9')) || ((data[i]>='a') && (data[i]<='f')) || ((data[i]>='A') && (data[i]<='F')) ) {
+    a = hexDigit(data[i++]);
+    b = (b<<4) + a;
+  }
+  return b;
+}
 // 5 digit hex number
 uint32_t hexFiveWord(char* data) {
   if (data[0]==0) {
@@ -408,6 +484,7 @@ void read_md5(uint32_t startAddress, uint32_t dataLength) {
 	MD5_CTX context;
 	unsigned char digest[16];
 	char buf[80];
+	uint16_t t;
 
 	flashaddress=startAddress;
 
@@ -424,9 +501,16 @@ void read_md5(uint32_t startAddress, uint32_t dataLength) {
 	   if (bytesleft < 64) {
 	      bytestoprocess = bytesleft;
 	   }
-	   for (i=0;i<bytestoprocess;i++) {
+	   // TODO  this is unlikely to work well unless the file is even in length
+	   for (i=0;i<bytestoprocess;i+=2) {
 	      //md5buffer[i] = (char) read_next_byte();
-	      md5buffer[i] = (char) readFromFlashROM(flashaddress++);
+	      t = readFromFlashROM((flashaddress>>1));
+	      // TODO these might need to be swapped around
+	      //md5buffer[i] = (char) (t &0xff);
+	      //md5buffer[i+1] = (char) ((t &0xff00) >>8);
+	      md5buffer[i] = (char) ((t &0xff00) >>8);
+	      md5buffer[i+1] = (char) (t &0xff);
+	      flashaddress+=2;
 	   }
 	   MD5Update(&context, md5buffer, bytestoprocess);
 	   // No need to bump up flash address as read_next_byte does it.
@@ -440,7 +524,122 @@ void read_md5(uint32_t startAddress, uint32_t dataLength) {
 
 }
 
+void blank_check(uint32_t startAddress, uint32_t dataLength) {
+	char buf[80];
+	uint16_t t;
+	int max_failures=16;
+	int failures=0;
+
+	flashaddress=startAddress;
+
+	sprintf(buf,"About to check for FFFFs from %05x to %05x\r\n",(unsigned int) startAddress,(unsigned int) (startAddress + dataLength - 1));
+	printSerialUSB(buf);
+
+	while (flashaddress < (startAddress + dataLength) ) {
+	   t = readFromFlashROM((flashaddress>>1));
+	   if (t != 0xffff) {
+		failures++;
+		sprintf((char *)buf,"FAIL %05x  = %04x\r\n",(unsigned int) (flashaddress), t);
+		printSerialUSB(buf);
+		if (failures>max_failures) {
+			sprintf(buf,"Excessive failures. Aborting. You need to investigate\r\n");
+			printSerialUSB(buf);
+			break;
+		}
+	   }
+	   flashaddress+=2;
+	}
+	if (failures==0) {
+		sprintf(buf,"All Blank. Good\r\n");
+	} else {
+		sprintf(buf,"Some failures. Investigate\r\n");
+	}
+	printSerialUSB(buf);
+
+}
+
 uint8_t parseCommand() {
+  char param[3][16];
+  int i,x,y;
+  char buf[128];
+
+  char command;
+
+  param[0][0]=0;
+  param[1][0]=0;
+  param[2][0]=0;
+
+  for (i=0;cmdbuf[i]==' ';i++);
+  command = cmdbuf[i++];
+  x=0;
+  y=0;
+  while (cmdbuf[i]) {
+    for (;cmdbuf[i]==' ';i++);
+    y=0;
+    while (cmdbuf[i]>' ') {
+      param[x][y++]=cmdbuf[i++];
+      param[x][y]=0;
+    }
+    if (y>0)
+      x++;
+  }
+
+
+  startAddress = hexConvert(param[0]);
+  dataLength = hexConvert(param[1]);
+  lineLength = hexConvert(param[2]);
+
+
+  //sprintf(buf,"numbers 0x%08lx 0x%08lx 0x%08lx\r\n",startAddress,dataLength, lineLength);
+  printSerialUSB(buf);
+
+  uint8_t retval = 0;
+  switch (command) {
+    case 'a':
+      retval = SET_ADDRESS;
+      break;
+    case 'c':
+      retval = CLEAR_RAM;
+      break;
+    case 'r':
+      retval = READ_HEX;
+      break;
+    case 'w':
+      retval = WRITE_XMODEM;
+      break;
+    case 't':  // write TWO bytes t xxxxx 0aabb
+      retval = WRITE_HEX;
+      break;
+    case 'v':
+      retval = VERSION;
+      break;
+    case '?':
+      retval = HELP;
+      break;
+    case 'g':
+      retval = GPIO_HELP;
+      break;
+    case 'i':
+      retval = FLASH_IDENTIFY;
+      break;
+    case 'e':
+      retval = FLASH_ERASE;
+      break;
+    case 'm':
+      retval = MD5SUM;
+      break;
+    case 'b':
+      retval = BLANK_CHECK;
+      break;
+    default:
+      retval = NOCOMMAND;
+      break;
+  }
+  return retval;
+}
+
+
+uint8_t oldParseCommand() {
   //set ',' to '\0' terminator (command string has a fixed strucure)
   //first string is the command character
   cmdbuf[1]  = 0;
@@ -516,8 +715,15 @@ void readCommand() {
 
         break;
       }
-      usb_write( (uint8_t *)&c,1); // echo back
-      cmdbuf[idx++] = c;
+      // check for backspace
+      if (c == 0x08) {
+        cmdbuf[idx]=0;
+        idx--;
+        usb_write( (uint8_t *)&c,1); // echo back
+      } else {
+        usb_write( (uint8_t *)&c,1); // echo back
+        cmdbuf[idx++] = c;
+      }
     }
   }
 }
@@ -537,6 +743,7 @@ int main(void)
   //char buf[160];
   uint8_t xmodem_byte;
   uint32_t crc;
+  int i;
 
 
   /* USER CODE END 1 */
@@ -564,6 +771,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   LL_mDelay(1000);
   printHelp();
+
 
   /* USER CODE END 2 */
  
@@ -597,6 +805,7 @@ int main(void)
 				break;
 
 			case READ_HEX:
+				specialFlashROMReset(); // read-reset
 				//set a default if needed to prevent infinite loop
 				if (lineLength == 0) lineLength = 16;
 				if (dataLength == 0) {
@@ -606,10 +815,18 @@ int main(void)
 				read_block(startAddress, endAddress, lineLength);
 				break;
 			case WRITE_XMODEM:
-				printLineSerialUSB("Please start an xmodem transfer in your terminal ...");
+				printSerialUSB("\r\nAbout to start flashing the MX29F1615 with a file you will transfer via xmodem\r\n");
+				printSerialUSB("\r\nI am giving you 5 seconds to connect +10V to the _BYTE/VPP pin\r\n");
+				for (i=0;i<5;i++) {
+					printSerialUSB(".");
+					LL_mDelay(1000);
+				}
+				printLineSerialUSB("\r\nWhen the xmodem transfer is finished, wait a few minutes, then put _BYTE/VPP back to +5V, then power cycle the MX29F1615\r\n");
+				printLineSerialUSB("\r\n\r\nPlease start an xmodem transfer in your terminal ...");
 				position = 0;
 				bytes = 0;
 				total=0;
+				address_toggle = 0; 
 				flashaddress=startAddress;
 				specialFlashROMReset(); // read-reset
 				//set_address_bus(startAddress);
@@ -627,6 +844,17 @@ int main(void)
 				endAddress = startAddress + dataLength - 1;
 				printLineSerialUSB("Reading md5");
 				read_md5(startAddress, dataLength);
+				break;
+
+			case BLANK_CHECK:
+ 				//set a default if needed to prevent infinite loop
+
+				if (dataLength == 0) {
+					dataLength = 0x80;
+				}
+				endAddress = startAddress + dataLength - 1;
+				printLineSerialUSB("Checking for all FFFFs");
+				blank_check(startAddress, dataLength);
 				break;
 
 			case VERSION:
@@ -791,7 +1019,7 @@ static void MX_GPIO_Init(void)
   LL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /**/
-  GPIO_InitStruct.Pin = LL_GPIO_PIN_1|LL_GPIO_PIN_2|LL_GPIO_PIN_3|LL_GPIO_PIN_4;
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_1|LL_GPIO_PIN_2|LL_GPIO_PIN_3|LL_GPIO_PIN_4|LL_GPIO_PIN_5;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
   GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
   GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
@@ -799,7 +1027,8 @@ static void MX_GPIO_Init(void)
   LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /**/
-  GPIO_InitStruct.Pin = LL_GPIO_PIN_8|LL_GPIO_PIN_9|LL_GPIO_PIN_10|LL_GPIO_PIN_11 
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_0|LL_GPIO_PIN_1|LL_GPIO_PIN_2|LL_GPIO_PIN_3|LL_GPIO_PIN_4|LL_GPIO_PIN_5|LL_GPIO_PIN_6|LL_GPIO_PIN_7
+	  		|LL_GPIO_PIN_8|LL_GPIO_PIN_9|LL_GPIO_PIN_10|LL_GPIO_PIN_11 
                           |LL_GPIO_PIN_12|LL_GPIO_PIN_13|LL_GPIO_PIN_14|LL_GPIO_PIN_15;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
